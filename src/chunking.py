@@ -1,6 +1,6 @@
-# Разбивка документов на чанки
-# Адаптивный размер: политики 500, отчеты 900, мануалы 700
-# Сохраняет заголовки в метаданных
+# Document chunking with adaptive sizes
+# Policies: 500, Reports: 900, Manuals: 700
+# Preserves headings in metadata
 
 import json
 import logging
@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class TextChunker:
-    # Размеры чанков в зависимости от типа документа
+    # Chunk sizes based on document type
     CHUNK_SIZES = {
-        "policy": 500,   # Политики - маленькие (точный поиск)
-        "report": 900,   # Отчеты - большие (больше контекста)
-        "manual": 700,   # Мануалы - средние
+        "policy": 500,   # Policies - small (precise search)
+        "report": 900,   # Reports - large (more context)
+        "manual": 700,   # Manuals - medium
         "other": 700
     }
 
@@ -31,24 +31,24 @@ class TextChunker:
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
     def chunk_documents(self, documents: List[Dict]) -> List[Dict]:
-        # Разбиваем документы на чанки с учетом типа
+        # Split documents into chunks considering their type
         all_chunks = []
 
         for doc in documents:
             text = doc["text"]
             metadata = doc["metadata"]
 
-            # Выбираем размер чанка в зависимости от типа документа
+            # Select chunk size based on document type
             doc_type = metadata.get("document_type", "other")
             chunk_size = self.CHUNK_SIZES.get(doc_type, self.default_chunk_size)
 
             logger.debug(f"Chunking {metadata['document']} (type={doc_type}, chunk_size={chunk_size})")
 
-            # Пробуем найти секции по заголовкам
+            # Try to find sections by headings
             sections = self._detect_sections(text)
 
             if len(sections) > 1:
-                # Разбиваем каждую секцию отдельно
+                # Split each section separately
                 for section_title, section_text in sections:
                     chunks = self._chunk_text(section_text, chunk_size)
                     for chunk_idx, chunk_text in enumerate(chunks):
@@ -56,7 +56,7 @@ class TextChunker:
                                                   section=section_title, chunk_index=chunk_idx)
                         all_chunks.append(chunk)
             else:
-                # Нет заголовков - режем весь текст
+                # No headings - chunk entire text
                 chunks = self._chunk_text(text, chunk_size)
                 for chunk_idx, chunk_text in enumerate(chunks):
                     chunk = self._create_chunk(text=chunk_text, metadata=metadata,
@@ -67,11 +67,11 @@ class TextChunker:
         return all_chunks
 
     def _detect_sections(self, text: str) -> List[tuple[str, str]]:
-        # Определяем секции по заголовкам
+        # Detect sections by headings
         patterns = [
-            r'^(?:#+\s+)(.+)$',  # # Заголовок
-            r'^(?:\d+\.?\s+)(.+)$',  # 1. Заголовок
-            r'^([A-Z][A-Z\s]{2,}):?\s*$',  # БОЛЬШИЕ БУКВЫ
+            r'^(?:#+\s+)(.+)$',  # # Heading
+            r'^(?:\d+\.?\s+)(.+)$',  # 1. Heading
+            r'^([A-Z][A-Z\s]{2,}):?\s*$',  # ALL CAPS
             r'^(?:Section|Chapter)\s+\d+[:\s]+(.+)$',  # Section 1: Title
         ]
 

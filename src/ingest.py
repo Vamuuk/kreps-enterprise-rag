@@ -1,6 +1,6 @@
-# Загрузка документов из папки raw_docs
-# Поддерживает PDF, TXT, MD
-# Определяет язык, тип документа и год
+# Document loading from raw_docs folder
+# Supports PDF, TXT, MD
+# Detects language, document type, and year
 
 import logging
 import re
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class MetadataExtractor:
-    # Ключевые слова для определения типа документа
+    # Keywords for document type classification
     TYPE_KEYWORDS = {
         "policy": ["policy", "policies", "regulation", "compliance", "guideline", "standard"],
         "report": ["report", "analysis", "findings", "summary", "assessment", "evaluation"],
@@ -25,7 +25,7 @@ class MetadataExtractor:
 
     @staticmethod
     def detect_language(text: str) -> str:
-        # Простое определение языка по кириллице/латинице
+        # Simple language detection via cyrillic/latin chars
         cyrillic_count = len(re.findall(r'[а-яА-ЯёЁ]', text[:1000]))
         latin_count = len(re.findall(r'[a-zA-Z]', text[:1000]))
 
@@ -38,7 +38,7 @@ class MetadataExtractor:
 
     @staticmethod
     def classify_document_type(filename: str, text: str) -> str:
-        # Определяем тип документа по названию и содержимому
+        # Classify doc type by filename and content
         search_text = (filename + " " + text[:2000]).lower()
 
         for doc_type, keywords in MetadataExtractor.TYPE_KEYWORDS.items():
@@ -50,7 +50,7 @@ class MetadataExtractor:
 
     @staticmethod
     def extract_year(text: str) -> Optional[int]:
-        # Ищем год публикации в первых 3000 символах
+        # Extract publication year from first 3000 chars
         header_text = text[:3000]
 
         patterns = [
@@ -63,7 +63,7 @@ class MetadataExtractor:
             matches = re.findall(pattern, header_text, re.IGNORECASE)
             years_found.extend([int(m) if isinstance(m, str) else int(m) for m in matches])
 
-        # Берем самый свежий год из 2000-2030
+        # Get most recent valid year (2000-2030)
         valid_years = [y for y in years_found if 2000 <= y <= 2030]
         if valid_years:
             return max(valid_years)
@@ -77,7 +77,7 @@ class DocumentLoader:
         self.metadata_extractor = MetadataExtractor()
 
     def load_all(self) -> List[Dict]:
-        # Загружаем все PDF/TXT/MD из raw_docs
+        # Load all PDF/TXT/MD from raw_docs
         documents = []
 
         if not self.docs_dir.exists():
@@ -107,12 +107,12 @@ class DocumentLoader:
         return documents
 
     def _load_pdf(self, file_path: Path) -> List[Dict]:
-        # Загружаем PDF постранично + метаданные
+        # Load PDF page by page + metadata
         documents = []
         full_text = ""
 
         with fitz.open(file_path) as pdf:
-            # Берем первые 5 страниц для определения метаданных
+            # Get first 5 pages for metadata extraction
             for page_num in range(min(5, len(pdf))):
                 full_text += pdf[page_num].get_text()
 
@@ -120,7 +120,7 @@ class DocumentLoader:
             doc_type = self.metadata_extractor.classify_document_type(file_path.name, full_text)
             year = self.metadata_extractor.extract_year(full_text)
 
-            # Загружаем все страницы
+            # Load all pages
             for page_num in range(len(pdf)):
                 page = pdf[page_num]
                 text = page.get_text()
@@ -143,7 +143,7 @@ class DocumentLoader:
         return documents
 
     def _load_text(self, file_path: Path) -> List[Dict]:
-        # Загружаем TXT/MD файл
+        # Load TXT/MD file
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             text = f.read()
 
@@ -170,7 +170,7 @@ class DocumentLoader:
 
 
 def ingest_documents() -> List[Dict]:
-    # Основная функция загрузки документов
+    # Main document loading function
     loader = DocumentLoader()
     return loader.load_all()
 

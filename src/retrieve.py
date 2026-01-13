@@ -1,5 +1,5 @@
-# Гибридный поиск: FAISS (семантика) + BM25 (ключевые слова)
-# +15% бонус за совпадение языка запроса и документа
+# Hybrid search: FAISS (semantic) + BM25 (keywords)
+# +15% boost for matching query/document language
 
 import logging
 import re
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class LanguageDetector:
     @staticmethod
     def detect_query_language(query: str) -> str:
-        # Определяем язык запроса по кириллице/латинице
+        # Detect query language via cyrillic/latin chars
         cyrillic_count = len(re.findall(r'[а-яА-ЯёЁ]', query))
         latin_count = len(re.findall(r'[a-zA-Z]', query))
 
@@ -29,7 +29,7 @@ class LanguageDetector:
 
 
 class HybridRetriever:
-    LANGUAGE_BOOST = 0.15  # Буст за совпадение языка
+    LANGUAGE_BOOST = 0.15  # Boost for language match
 
     def __init__(self):
         """Initialize retriever with both indices."""

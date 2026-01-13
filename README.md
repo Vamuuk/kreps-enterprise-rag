@@ -1,153 +1,153 @@
 # KREPS RAG System
 
-Офлайн система для поиска по документам с использованием гибридного поиска (FAISS + BM25) и генерации ответов через Qwen.
+Offline document search system using hybrid retrieval (FAISS + BM25) and answer generation via Qwen.
 
-## Что это
+## What it does
 
-Система работает так:
-1. Загружает PDF/TXT/MD файлы
-2. Режет их на чанки (кусочки текста)
-3. Индексирует через FAISS (семантика) и BM25 (ключевые слова)
-4. По запросу ищет похожие чанки
-5. Генерирует ответ через Qwen LLM
+The system works like this:
+1. Loads PDF/TXT/MD files
+2. Splits them into chunks
+3. Indexes via FAISS (semantic) and BM25 (keywords)
+4. Searches for similar chunks on query
+5. Generates answer via Qwen LLM
 
-## Структура проекта
+## Project structure
 
 ```
 kREPS-rag/
-├── src/                  # Код
-│   ├── app.py           # CLI интерфейс
-│   ├── ingest.py        # Загрузка документов
-│   ├── chunking.py      # Разбивка на чанки
-│   ├── embed.py         # Эмбеддинги через Ollama
-│   ├── index_faiss.py   # Семантический поиск
-│   ├── index_bm25.py    # Лексический поиск
-│   ├── retrieve.py      # Гибридный поиск
-│   └── answer.py        # Генерация ответа
+├── src/                  # Code
+│   ├── app.py           # CLI interface
+│   ├── ingest.py        # Document loading
+│   ├── chunking.py      # Splitting into chunks
+│   ├── embed.py         # Embeddings via Ollama
+│   ├── index_faiss.py   # Semantic search
+│   ├── index_bm25.py    # Lexical search
+│   ├── retrieve.py      # Hybrid search
+│   └── answer.py        # Answer generation
 ├── data/
-│   └── raw_docs/        # Сюда кидать документы
-├── storage/             # Тут хранятся индексы
-└── frontend.py          # Веб-интерфейс (Streamlit)
+│   └── raw_docs/        # Put documents here
+├── storage/             # Indexes stored here
+└── frontend.py          # Web interface (Streamlit)
 ```
 
-## Установка
+## Installation
 
-1. Создаем виртуальное окружение:
+1. Create virtual environment:
 ```bash
 python -m venv .venv
 .venv\Scripts\activate  # Windows
 ```
 
-2. Ставим зависимости:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Проверяем что Ollama запущен:
+3. Check Ollama is running:
 ```bash
 ollama list
-# Должны быть модели: nomic-embed-text и qwen2.5:3b
+# Should have: nomic-embed-text and qwen2.5:3b
 ```
 
-Если моделей нет:
+If models missing:
 ```bash
 ollama pull nomic-embed-text
 ollama pull qwen2.5:3b
 ```
 
-## Как использовать
+## How to use
 
-### 1. Добавить документы
-Кидаем PDF/TXT/MD файлы в папку `data/raw_docs/`
+### 1. Add documents
+Put PDF/TXT/MD files in `data/raw_docs/`
 
-### 2. Создать индекс
+### 2. Create index
 ```bash
 python src/app.py index
 ```
 
-Это:
-- Загрузит документы
-- Разобьет на чанки
-- Определит язык и тип документа
-- Создаст FAISS и BM25 индексы
+This will:
+- Load documents
+- Split into chunks
+- Detect language and document type
+- Create FAISS and BM25 indexes
 
-### 3. Задать вопрос
+### 3. Ask questions
 
-Через CLI:
+Via CLI:
 ```bash
-python src/app.py query "Какие процедуры безопасности?"
+python src/app.py query "What are the safety procedures?"
 ```
 
-Через веб-интерфейс:
+Via web interface:
 ```bash
 python -m streamlit run frontend.py
 ```
 
-### 4. Проверить статус
+### 4. Check status
 ```bash
 python src/app.py status
 ```
 
-## Фичи
+## Features
 
-**Автоопределение метаданных:**
-- Язык документа (en/ru)
-- Тип (policy/report/manual)
-- Год публикации
+**Auto metadata detection:**
+- Document language (en/ru)
+- Type (policy/report/manual)
+- Publication year
 
-**Адаптивное разбиение:**
-- Политики → 500 токенов (точный поиск)
-- Отчеты → 900 токенов (больше контекста)
-- Мануалы → 700 токенов
+**Adaptive chunking:**
+- Policies → 500 tokens (precise search)
+- Reports → 900 tokens (more context)
+- Manuals → 700 tokens
 
-**Языковая приоритизация:**
-- Русский запрос → приоритет русским документам
-- Английский запрос → приоритет английским
+**Language prioritization:**
+- Russian query → priority to Russian docs
+- English query → priority to English docs
 
-**Гарантии качества:**
-- Минимум источников (MIN_SOURCES)
-- Порог релевантности
-- Отказ при слабых доказательствах
-- Ответ ТОЛЬКО из контекста
+**Quality guardrails:**
+- Minimum sources (MIN_SOURCES)
+- Relevance threshold
+- Refuse on weak evidence
+- Answer ONLY from context
 
-## Настройки
+## Settings
 
-В `src/config.py`:
+In `src/config.py`:
 ```python
-CHUNK_SIZE_TOKENS = 700          # Размер чанка
-CHUNK_OVERLAP_TOKENS = 100       # Перекрытие
-SEMANTIC_WEIGHT = 0.7            # Вес семантики
-LEXICAL_WEIGHT = 0.3             # Вес BM25
-MIN_SOURCES = 2                  # Мин. источников
-CONFIDENCE_THRESHOLD_HIGH = 0.75 # Порог уверенности
+CHUNK_SIZE_TOKENS = 700          # Chunk size
+CHUNK_OVERLAP_TOKENS = 100       # Overlap
+SEMANTIC_WEIGHT = 0.7            # Semantic weight
+LEXICAL_WEIGHT = 0.3             # BM25 weight
+MIN_SOURCES = 2                  # Min sources
+CONFIDENCE_THRESHOLD_HIGH = 0.75 # Confidence threshold
 ```
 
-## Как работает поиск
+## How search works
 
-1. **Детект языка запроса** (по кириллице/латинице)
-2. **FAISS search** → топ-10 семантически похожих
-3. **BM25 search** → топ-10 по ключевым словам
-4. **Merge + нормализация** → гибридный скор
-5. **Language boost** → +15% за совпадение языка
-6. **Топ-5 чанков** → в промпт Qwen
+1. **Query language detection** (cyrillic/latin)
+2. **FAISS search** → top-10 semantically similar
+3. **BM25 search** → top-10 by keywords
+4. **Merge + normalize** → hybrid score
+5. **Language boost** → +15% for matching language
+6. **Top-5 chunks** → into Qwen prompt
 
-## Примеры
+## Examples
 
 ```bash
-# Индексация
+# Indexing
 python src/app.py index
 
-# Запрос
-python src/app.py query "Что такое безопасность?"
+# Query
+python src/app.py query "What is safety?"
 
-# Статус
+# Status
 python src/app.py status
 
-# Веб-интерфейс
+# Web interface
 python -m streamlit run frontend.py
 ```
 
-## Возможные проблемы
+## Common issues
 
 **ModuleNotFoundError: No module named 'faiss'**
 ```bash
@@ -160,18 +160,18 @@ pip install rank-bm25
 ```
 
 **Connection refused (Ollama)**
-- Проверь что Ollama запущен: `ollama list`
-- Проверь порт: `http://localhost:11434`
+- Check Ollama is running: `ollama list`
+- Check port: `http://localhost:11434`
 
-**Timeout при генерации**
-- Увеличь timeout в `src/answer.py` (сейчас 450 сек)
-- Или используй более легкую модель
+**Generation timeout**
+- Increase timeout in `src/answer.py` (currently 450 sec)
+- Or use lighter model
 
-## Результат запроса
+## Query result
 
 ```python
 {
-    "answer": "Ответ из документов",
+    "answer": "Answer from documents",
     "confidence": "High",  # High/Medium/Low
     "sources": [
         {
@@ -181,18 +181,18 @@ pip install rank-bm25
             "score": 0.87
         }
     ],
-    "chunks": [...]  # Найденные чанки
+    "chunks": [...]  # Retrieved chunks
 }
 ```
 
-## Зависимости
+## Dependencies
 
 - Python 3.9+
-- Ollama (для эмбеддингов и LLM)
-- FAISS (векторный поиск)
-- BM25 (лексический поиск)
-- Streamlit (веб-интерфейс)
+- Ollama (for embeddings and LLM)
+- FAISS (vector search)
+- BM25 (lexical search)
+- Streamlit (web interface)
 
-## Лицензия
+## License
 
-Учебный проект
+Student project
