@@ -1,233 +1,198 @@
-# KREPS Enterprise RAG System
+# KREPS RAG System
 
-Offline enterprise knowledge system for technical documentation in safety-critical industrial environments.
+Офлайн система для поиска по документам с использованием гибридного поиска (FAISS + BM25) и генерации ответов через Qwen.
 
-## Status
+## Что это
 
-**Foundation Complete** ✓
-**Qwen LLM Integration** ⏳ Pending
+Система работает так:
+1. Загружает PDF/TXT/MD файлы
+2. Режет их на чанки (кусочки текста)
+3. Индексирует через FAISS (семантика) и BM25 (ключевые слова)
+4. По запросу ищет похожие чанки
+5. Генерирует ответ через Qwen LLM
 
-This system implements all RAG components EXCEPT LLM inference. The retrieval pipeline, indexing, and guardrails are production-ready. Qwen embedding and generation models must be integrated before deployment.
-
-## Architecture
-
-```
-Document Ingestion → Chunking → Indexing → Retrieval → Answer Generation
-                                  ↓
-                            FAISS (semantic) + BM25 (lexical)
-                                  ↓
-                            Hybrid Retrieval
-                                  ↓
-                            Guardrails + LLM
-```
-
-## Project Structure
+## Структура проекта
 
 ```
 kREPS-rag/
-├── src/
-│   ├── app.py           # CLI interface
-│   ├── contracts.py     # Interface definitions
-│   ├── config.py        # Configuration
-│   ├── ingest.py        # Document loading (PDF/TXT/MD)
-│   ├── chunking.py      # Token-aware chunking
-│   ├── embed.py         # Embedding engine (PLACEHOLDER)
-│   ├── index_faiss.py   # Semantic indexing
-│   ├── index_bm25.py    # Lexical indexing
-│   ├── retrieve.py      # Hybrid retrieval
-│   └── answer.py        # Answer generation (PLACEHOLDER)
+├── src/                  # Код
+│   ├── app.py           # CLI интерфейс
+│   ├── ingest.py        # Загрузка документов
+│   ├── chunking.py      # Разбивка на чанки
+│   ├── embed.py         # Эмбеддинги через Ollama
+│   ├── index_faiss.py   # Семантический поиск
+│   ├── index_bm25.py    # Лексический поиск
+│   ├── retrieve.py      # Гибридный поиск
+│   └── answer.py        # Генерация ответа
 ├── data/
-│   ├── raw_docs/        # Place your documents here
-│   └── processed/       # Generated chunks
-├── storage/
-│   ├── faiss/           # Vector index
-│   └── bm25/            # Lexical index
-├── logs/
-├── requirements.txt
-└── README.md
+│   └── raw_docs/        # Сюда кидать документы
+├── storage/             # Тут хранятся индексы
+└── frontend.py          # Веб-интерфейс (Streamlit)
 ```
 
-## Setup
+## Установка
 
-### 1. Create Virtual Environment
-
+1. Создаем виртуальное окружение:
 ```bash
-cd kREPS-rag
 python -m venv .venv
+.venv\Scripts\activate  # Windows
 ```
 
-**Windows:**
-```bash
-.venv\Scripts\activate
-```
-
-**Linux/Mac:**
-```bash
-source .venv/bin/activate
-```
-
-### 2. Install Dependencies
-
+2. Ставим зависимости:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Add Documents
-
-Place your PDF, TXT, or MD files in `data/raw_docs/`:
-
+3. Проверяем что Ollama запущен:
 ```bash
-# Windows
-copy your_docs/*.pdf data\raw_docs\
-
-# Linux/Mac
-cp your_docs/*.pdf data/raw_docs/
+ollama list
+# Должны быть модели: nomic-embed-text и qwen2.5:3b
 ```
 
-## Usage
+Если моделей нет:
+```bash
+ollama pull nomic-embed-text
+ollama pull qwen2.5:3b
+```
 
-### Build Indices
+## Как использовать
 
+### 1. Добавить документы
+Кидаем PDF/TXT/MD файлы в папку `data/raw_docs/`
+
+### 2. Создать индекс
 ```bash
 python src/app.py index
 ```
 
-This will:
-1. Ingest documents from `data/raw_docs/`
-2. Chunk text with 700-token windows and 100-token overlap
-3. Build FAISS semantic index (requires Qwen embeddings)
-4. Build BM25 lexical index
+Это:
+- Загрузит документы
+- Разобьет на чанки
+- Определит язык и тип документа
+- Создаст FAISS и BM25 индексы
 
-**Note:** FAISS indexing will be skipped until Qwen embeddings are integrated. The system will use BM25-only retrieval.
+### 3. Задать вопрос
 
-### Query System
-
+Через CLI:
 ```bash
-python src/app.py query "What are the safety procedures?"
+python src/app.py query "Какие процедуры безопасности?"
 ```
 
-### Check Status
+Через веб-интерфейс:
+```bash
+python -m streamlit run frontend.py
+```
 
+### 4. Проверить статус
 ```bash
 python src/app.py status
 ```
 
-## Current Functionality
+## Фичи
 
-### ✓ Working Now
+**Автоопределение метаданных:**
+- Язык документа (en/ru)
+- Тип (policy/report/manual)
+- Год публикации
 
-- Document ingestion (PDF page-by-page, TXT, MD)
-- Section-aware chunking with token overlap
-- BM25 lexical search (no external dependencies)
-- Hybrid retrieval framework
-- Query guardrails (minimum sources, confidence scoring)
-- Structured output (answer, confidence, sources, chunks)
+**Адаптивное разбиение:**
+- Политики → 500 токенов (точный поиск)
+- Отчеты → 900 токенов (больше контекста)
+- Мануалы → 700 токенов
 
-### ⏳ Requires Integration
+**Языковая приоритизация:**
+- Русский запрос → приоритет русским документам
+- Английский запрос → приоритет английским
 
-- Qwen embedding model (for semantic search)
-- Qwen generation model (for answer synthesis)
+**Гарантии качества:**
+- Минимум источников (MIN_SOURCES)
+- Порог релевантности
+- Отказ при слабых доказательствах
+- Ответ ТОЛЬКО из контекста
 
-## Integration Points
+## Настройки
 
-### 1. Qwen Embedding Model
-
-**File:** `src/embed.py`
-**Function:** `EmbeddingEngine.embed_texts()`
-
-Replace NotImplementedError with:
-
+В `src/config.py`:
 ```python
-def embed_texts(self, texts: List[str]) -> List[List[float]]:
-    # Load Qwen embedding model (offline)
-    # Tokenize and batch process
-    # Return list of vectors
-    pass
+CHUNK_SIZE_TOKENS = 700          # Размер чанка
+CHUNK_OVERLAP_TOKENS = 100       # Перекрытие
+SEMANTIC_WEIGHT = 0.7            # Вес семантики
+LEXICAL_WEIGHT = 0.3             # Вес BM25
+MIN_SOURCES = 2                  # Мин. источников
+CONFIDENCE_THRESHOLD_HIGH = 0.75 # Порог уверенности
 ```
 
-### 2. Qwen Generation Model
+## Как работает поиск
 
-**File:** `src/answer.py`
-**Function:** `AnswerGenerator._generate_placeholder_answer()`
+1. **Детект языка запроса** (по кириллице/латинице)
+2. **FAISS search** → топ-10 семантически похожих
+3. **BM25 search** → топ-10 по ключевым словам
+4. **Merge + нормализация** → гибридный скор
+5. **Language boost** → +15% за совпадение языка
+6. **Топ-5 чанков** → в промпт Qwen
 
-Replace placeholder logic with:
+## Примеры
 
-```python
-def _generate_answer(self, query: str, chunks: List[Dict]) -> str:
-    # Construct prompt with query and retrieved context
-    # Call Qwen LLM for inference
-    # Extract and return generated answer
-    pass
+```bash
+# Индексация
+python src/app.py index
+
+# Запрос
+python src/app.py query "Что такое безопасность?"
+
+# Статус
+python src/app.py status
+
+# Веб-интерфейс
+python -m streamlit run frontend.py
 ```
 
-## Configuration
+## Возможные проблемы
 
-Edit `src/config.py` to adjust:
+**ModuleNotFoundError: No module named 'faiss'**
+```bash
+pip install faiss-cpu
+```
 
-- `CHUNK_SIZE_TOKENS`: 700 (target 600-800)
-- `CHUNK_OVERLAP_TOKENS`: 100
-- `SEMANTIC_WEIGHT`: 0.7 (hybrid retrieval)
-- `LEXICAL_WEIGHT`: 0.3
-- `CONFIDENCE_THRESHOLD_HIGH`: 0.75
-- `CONFIDENCE_THRESHOLD_MEDIUM`: 0.50
+**ModuleNotFoundError: No module named 'rank_bm25'**
+```bash
+pip install rank-bm25
+```
 
-## Output Contract
+**Connection refused (Ollama)**
+- Проверь что Ollama запущен: `ollama list`
+- Проверь порт: `http://localhost:11434`
 
-All queries return:
+**Timeout при генерации**
+- Увеличь timeout в `src/answer.py` (сейчас 450 сек)
+- Или используй более легкую модель
+
+## Результат запроса
 
 ```python
 {
-    "answer": str,
-    "confidence": "High" | "Medium" | "Low",
+    "answer": "Ответ из документов",
+    "confidence": "High",  # High/Medium/Low
     "sources": [
         {
-            "document": str,
-            "page": int,
-            "section": str,
-            "score": float
+            "document": "safety_policy.pdf",
+            "page": 5,
+            "section": "Procedures",
+            "score": 0.87
         }
     ],
-    "chunks": [
-        {
-            "chunk_id": str,
-            "text": str,
-            "metadata": dict,
-            "score": float
-        }
-    ]
+    "chunks": [...]  # Найденные чанки
 }
 ```
 
-## Testing Without Qwen
+## Зависимости
 
-The system can be tested with BM25-only retrieval:
+- Python 3.9+
+- Ollama (для эмбеддингов и LLM)
+- FAISS (векторный поиск)
+- BM25 (лексический поиск)
+- Streamlit (веб-интерфейс)
 
-1. Add documents to `data/raw_docs/`
-2. Run `python src/app.py index`
-3. FAISS indexing will be skipped (expected)
-4. Query with `python src/app.py query "question"`
-5. Results will show BM25 retrieval working
-6. Answer will be placeholder (no LLM)
+## Лицензия
 
-## Enterprise Features
-
-- **Offline-first:** No external API calls
-- **Deterministic chunk IDs:** Stable across re-indexing
-- **Section-aware chunking:** Preserves document structure
-- **Hybrid retrieval:** Combines semantic and lexical search
-- **Quality guardrails:** Minimum sources, score thresholds
-- **Confidence scoring:** High/Medium/Low based on retrieval
-- **Structured logging:** Enterprise observability
-
-## Next Steps
-
-1. Integrate Qwen embedding model in `src/embed.py`
-2. Test FAISS indexing with embeddings
-3. Integrate Qwen generation model in `src/answer.py`
-4. Test end-to-end query pipeline
-5. Tune chunking and retrieval parameters
-6. Deploy to production environment
-
-## License
-
-Internal enterprise use only.
+Учебный проект

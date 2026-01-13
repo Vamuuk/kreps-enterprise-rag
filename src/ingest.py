@@ -1,10 +1,6 @@
-"""
-Document ingestion module for enterprise RAG system.
-Supports PDF, TXT, and MD files with enhanced metadata extraction:
-- Language detection
-- Document type classification
-- Version/year extraction
-"""
+# Загрузка документов из папки raw_docs
+# Поддерживает PDF, TXT, MD
+# Определяет язык, тип документа и год
 
 import logging
 import re
@@ -20,9 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class MetadataExtractor:
-    """Extract enhanced metadata from documents."""
-
-    # Document type keywords for classification
+    # Ключевые слова для определения типа документа
     TYPE_KEYWORDS = {
         "policy": ["policy", "policies", "regulation", "compliance", "guideline", "standard"],
         "report": ["report", "analysis", "findings", "summary", "assessment", "evaluation"],
@@ -31,21 +25,8 @@ class MetadataExtractor:
 
     @staticmethod
     def detect_language(text: str) -> str:
-        """
-        Detect language from text using simple heuristics.
-
-        Args:
-            text: Document text
-
-        Returns:
-            Language code (en, ru, etc.) or 'unknown'
-        """
-        # Simple offline language detection based on character patterns
-        # For production, you could add langdetect library, but keeping minimal for now
-
-        # Check for Cyrillic characters (Russian)
+        # Простое определение языка по кириллице/латинице
         cyrillic_count = len(re.findall(r'[а-яА-ЯёЁ]', text[:1000]))
-        # Check for Latin characters (English)
         latin_count = len(re.findall(r'[a-zA-Z]', text[:1000]))
 
         if cyrillic_count > latin_count * 0.3:
@@ -57,17 +38,7 @@ class MetadataExtractor:
 
     @staticmethod
     def classify_document_type(filename: str, text: str) -> str:
-        """
-        Classify document type based on filename and content.
-
-        Args:
-            filename: Document filename
-            text: Document text (first few pages)
-
-        Returns:
-            Document type: policy, report, manual, or other
-        """
-        # Combine filename and first 2000 chars for classification
+        # Определяем тип документа по названию и содержимому
         search_text = (filename + " " + text[:2000]).lower()
 
         for doc_type, keywords in MetadataExtractor.TYPE_KEYWORDS.items():
@@ -79,23 +50,11 @@ class MetadataExtractor:
 
     @staticmethod
     def extract_year(text: str) -> Optional[int]:
-        """
-        Extract publication year from document text.
-
-        Args:
-            text: Document text
-
-        Returns:
-            Year as integer, or None if not found
-        """
-        # Look for year patterns in first 3000 chars (title page area)
+        # Ищем год публикации в первых 3000 символах
         header_text = text[:3000]
 
-        # Pattern 1: "2023", "2024" as standalone year
-        # Pattern 2: "Published: 2023", "Date: 2024"
-        # Pattern 3: "Copyright 2023", "(c) 2024"
         patterns = [
-            r'\b(19\d{2}|20[0-2]\d)\b',  # Years 1900-2029
+            r'\b(19\d{2}|20[0-2]\d)\b',  # 1900-2029
             r'(?:published|date|year|copyright|\(c\))[\s:]*(\d{4})',
         ]
 
@@ -104,7 +63,7 @@ class MetadataExtractor:
             matches = re.findall(pattern, header_text, re.IGNORECASE)
             years_found.extend([int(m) if isinstance(m, str) else int(m) for m in matches])
 
-        # Return most recent valid year (2000-2030)
+        # Берем самый свежий год из 2000-2030
         valid_years = [y for y in years_found if 2000 <= y <= 2030]
         if valid_years:
             return max(valid_years)
@@ -113,19 +72,12 @@ class MetadataExtractor:
 
 
 class DocumentLoader:
-    """Loads documents from filesystem with enhanced metadata extraction."""
-
     def __init__(self, docs_dir: Path = RAW_DOCS_DIR):
         self.docs_dir = docs_dir
         self.metadata_extractor = MetadataExtractor()
 
     def load_all(self) -> List[Dict]:
-        """
-        Recursively load all supported documents from raw_docs directory.
-
-        Returns:
-            List of document dicts with text and enhanced metadata
-        """
+        # Загружаем все PDF/TXT/MD из raw_docs
         documents = []
 
         if not self.docs_dir.exists():
@@ -155,41 +107,30 @@ class DocumentLoader:
         return documents
 
     def _load_pdf(self, file_path: Path) -> List[Dict]:
-        """
-        Load PDF file page by page with enhanced metadata.
-
-        Args:
-            file_path: Path to PDF file
-
-        Returns:
-            List of page documents with metadata
-        """
+        # Загружаем PDF постранично + метаданные
         documents = []
-        full_text = ""  # Accumulate text for document-level metadata
+        full_text = ""
 
         with fitz.open(file_path) as pdf:
-            # Extract full text for metadata
-            for page_num in range(min(5, len(pdf))):  # First 5 pages for metadata
+            # Берем первые 5 страниц для определения метаданных
+            for page_num in range(min(5, len(pdf))):
                 full_text += pdf[page_num].get_text()
 
-            # Extract document-level metadata
             language = self.metadata_extractor.detect_language(full_text)
-            doc_type = self.metadata_extractor.classify_document_type(
-                file_path.name, full_text
-            )
+            doc_type = self.metadata_extractor.classify_document_type(file_path.name, full_text)
             year = self.metadata_extractor.extract_year(full_text)
 
-            # Load pages
+            # Загружаем все страницы
             for page_num in range(len(pdf)):
                 page = pdf[page_num]
                 text = page.get_text()
 
-                if text.strip():  # Skip empty pages
+                if text.strip():
                     documents.append({
                         "text": text,
                         "metadata": {
                             "document": file_path.name,
-                            "page": page_num + 1,  # 1-indexed
+                            "page": page_num + 1,
                             "path": str(file_path),
                             "language": language,
                             "document_type": doc_type,
@@ -197,36 +138,23 @@ class DocumentLoader:
                         }
                     })
 
-        logger.info(
-            f"  Metadata: language={language}, type={doc_type}, year={year}"
-        )
+        logger.info(f"  Metadata: language={language}, type={doc_type}, year={year}")
 
         return documents
 
     def _load_text(self, file_path: Path) -> List[Dict]:
-        """
-        Load TXT or MD file with enhanced metadata.
-
-        Args:
-            file_path: Path to text file
-
-        Returns:
-            Single document dict with metadata
-        """
+        # Загружаем TXT/MD файл
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             text = f.read()
 
         if not text.strip():
             return []
 
-        # Extract metadata
         language = self.metadata_extractor.detect_language(text)
         doc_type = self.metadata_extractor.classify_document_type(file_path.name, text)
         year = self.metadata_extractor.extract_year(text)
 
-        logger.info(
-            f"  Metadata: language={language}, type={doc_type}, year={year}"
-        )
+        logger.info(f"  Metadata: language={language}, type={doc_type}, year={year}")
 
         return [{
             "text": text,
@@ -242,12 +170,7 @@ class DocumentLoader:
 
 
 def ingest_documents() -> List[Dict]:
-    """
-    Main ingestion entry point.
-
-    Returns:
-        List of loaded documents with enhanced metadata
-    """
+    # Основная функция загрузки документов
     loader = DocumentLoader()
     return loader.load_all()
 

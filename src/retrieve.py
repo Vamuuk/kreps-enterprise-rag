@@ -1,9 +1,5 @@
-"""
-Hybrid retrieval module combining semantic (FAISS) and lexical (BM25) search.
-Implements:
-- Score normalization and fusion
-- Language-aware retrieval with same-language boost
-"""
+# Гибридный поиск: FAISS (семантика) + BM25 (ключевые слова)
+# +15% бонус за совпадение языка запроса и документа
 
 import logging
 import re
@@ -18,20 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class LanguageDetector:
-    """Lightweight offline language detection for queries."""
-
     @staticmethod
     def detect_query_language(query: str) -> str:
-        """
-        Detect language from query text.
-
-        Args:
-            query: User query string
-
-        Returns:
-            Language code (en, ru, unknown)
-        """
-        # Count character types
+        # Определяем язык запроса по кириллице/латинице
         cyrillic_count = len(re.findall(r'[а-яА-ЯёЁ]', query))
         latin_count = len(re.findall(r'[a-zA-Z]', query))
 
@@ -44,10 +29,7 @@ class LanguageDetector:
 
 
 class HybridRetriever:
-    """Hybrid retrieval combining semantic and lexical search with language awareness."""
-
-    # Language boost factor (boost same-language chunks)
-    LANGUAGE_BOOST = 0.15  # 15% boost for matching language
+    LANGUAGE_BOOST = 0.15  # Буст за совпадение языка
 
     def __init__(self):
         """Initialize retriever with both indices."""

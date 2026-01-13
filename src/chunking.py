@@ -1,10 +1,6 @@
-"""
-Enterprise-grade structured chunking module.
-Implements:
-- Section-aware, token-aware chunking with overlap
-- Adaptive chunk sizes based on document type
-- Enhanced heading preservation in metadata
-"""
+# Разбивка документов на чанки
+# Адаптивный размер: политики 500, отчеты 900, мануалы 700
+# Сохраняет заголовки в метаданных
 
 import json
 import logging
@@ -21,96 +17,61 @@ logger = logging.getLogger(__name__)
 
 
 class TextChunker:
-    """Token-aware text chunker with adaptive sizing and section detection."""
-
-    # Adaptive chunk sizes based on document type
+    # Размеры чанков в зависимости от типа документа
     CHUNK_SIZES = {
-        "policy": 500,      # Smaller chunks for policies (precise retrieval)
-        "report": 900,      # Larger chunks for reports (context-heavy)
-        "manual": 700,      # Medium chunks for manuals
-        "other": 700        # Default size
+        "policy": 500,   # Политики - маленькие (точный поиск)
+        "report": 900,   # Отчеты - большие (больше контекста)
+        "manual": 700,   # Мануалы - средние
+        "other": 700
     }
 
-    def __init__(
-        self,
-        chunk_size: int = CHUNK_SIZE_TOKENS,
-        overlap: int = CHUNK_OVERLAP_TOKENS
-    ):
+    def __init__(self, chunk_size: int = CHUNK_SIZE_TOKENS, overlap: int = CHUNK_OVERLAP_TOKENS):
         self.default_chunk_size = chunk_size
         self.overlap = overlap
-        # Use cl100k_base encoding (GPT-4 tokenizer, widely compatible)
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
     def chunk_documents(self, documents: List[Dict]) -> List[Dict]:
-        """
-        Chunk all documents with metadata preservation and adaptive sizing.
-
-        Args:
-            documents: List of document dicts from ingest module
-
-        Returns:
-            List of chunk dicts with chunk_id and enhanced metadata
-        """
+        # Разбиваем документы на чанки с учетом типа
         all_chunks = []
 
         for doc in documents:
             text = doc["text"]
             metadata = doc["metadata"]
 
-            # Determine chunk size based on document type
+            # Выбираем размер чанка в зависимости от типа документа
             doc_type = metadata.get("document_type", "other")
             chunk_size = self.CHUNK_SIZES.get(doc_type, self.default_chunk_size)
 
-            logger.debug(
-                f"Chunking {metadata['document']} (type={doc_type}, chunk_size={chunk_size})"
-            )
+            logger.debug(f"Chunking {metadata['document']} (type={doc_type}, chunk_size={chunk_size})")
 
-            # Try section-based splitting first
+            # Пробуем найти секции по заголовкам
             sections = self._detect_sections(text)
 
             if len(sections) > 1:
-                # Process each section separately
+                # Разбиваем каждую секцию отдельно
                 for section_title, section_text in sections:
                     chunks = self._chunk_text(section_text, chunk_size)
                     for chunk_idx, chunk_text in enumerate(chunks):
-                        chunk = self._create_chunk(
-                            text=chunk_text,
-                            metadata=metadata,
-                            section=section_title,
-                            chunk_index=chunk_idx
-                        )
+                        chunk = self._create_chunk(text=chunk_text, metadata=metadata,
+                                                  section=section_title, chunk_index=chunk_idx)
                         all_chunks.append(chunk)
             else:
-                # No clear sections, chunk entire text
+                # Нет заголовков - режем весь текст
                 chunks = self._chunk_text(text, chunk_size)
                 for chunk_idx, chunk_text in enumerate(chunks):
-                    chunk = self._create_chunk(
-                        text=chunk_text,
-                        metadata=metadata,
-                        section="Main Content",
-                        chunk_index=chunk_idx
-                    )
+                    chunk = self._create_chunk(text=chunk_text, metadata=metadata,
+                                              section="Main Content", chunk_index=chunk_idx)
                     all_chunks.append(chunk)
 
         logger.info(f"Created {len(all_chunks)} chunks from {len(documents)} documents")
         return all_chunks
 
     def _detect_sections(self, text: str) -> List[tuple[str, str]]:
-        """
-        Detect sections in text based on headers with enhanced pattern matching.
-
-        Args:
-            text: Document text
-
-        Returns:
-            List of (section_title, section_text) tuples
-        """
-        # Enhanced header patterns for better heading detection
-        # Examples: "1. Introduction", "Section 2:", "# Header", "INTRODUCTION", etc.
+        # Определяем секции по заголовкам
         patterns = [
-            r'^(?:#+\s+)(.+)$',  # Markdown headers: # Title
-            r'^(?:\d+\.?\s+)(.+)$',  # Numbered: 1. Title or 1 Title
-            r'^([A-Z][A-Z\s]{2,}):?\s*$',  # ALL CAPS HEADERS
+            r'^(?:#+\s+)(.+)$',  # # Заголовок
+            r'^(?:\d+\.?\s+)(.+)$',  # 1. Заголовок
+            r'^([A-Z][A-Z\s]{2,}):?\s*$',  # БОЛЬШИЕ БУКВЫ
             r'^(?:Section|Chapter)\s+\d+[:\s]+(.+)$',  # Section 1: Title
         ]
 

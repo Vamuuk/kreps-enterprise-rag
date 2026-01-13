@@ -1,0 +1,22 @@
+python -m venv .venv - создать окружение
+.venv\Scripts\activate - активировать окружение
+
+pip install -r requirements.txt - установить зависимости
+pip install streamlit pandas - фронтенд библиотеки
+
+python -m src.app index - индексировать документы
+python -m src.app status - проверить индексы
+
+python -m src.app query "question" - задать вопрос в консоли
+
+python -m streamlit run frontend.py - запуск фронтенда
+
+ollama list - список моделей
+ollama pull nomic-embed-text - эмбеддинги
+ollama pull qwen2.5:3b - лёгкая LLM
+ollama pull qwen3:8b - тяжёлая LLM
+
+git status - статус
+git add . - добавить файлы
+git commit -m "msg" - коммит
+git push - отправить в github
