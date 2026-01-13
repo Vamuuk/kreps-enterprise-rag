@@ -10,8 +10,8 @@ from typing import List, Dict, Tuple
 import numpy as np
 import faiss
 
-from config import FAISS_DIR, EMBEDDING_DIM, TOP_K_FAISS
-from embed import get_embedding_engine
+from src.config import FAISS_DIR, EMBEDDING_DIM, TOP_K_FAISS
+from src.embed import get_embedding_engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -183,7 +183,7 @@ def load_faiss_index() -> FAISSIndex:
 
 if __name__ == "__main__":
     # Test FAISS indexing
-    from chunking import load_chunks
+    from src.chunking import load_chunks
 
     chunks = load_chunks()
     if chunks:

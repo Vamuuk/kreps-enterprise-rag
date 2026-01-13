@@ -42,3 +42,7 @@ Thumbs.db
 *.tmp
 *.bak
 *~
+
+
+# temp files
+*.tmp*

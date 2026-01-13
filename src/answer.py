@@ -9,9 +9,9 @@ import urllib.request
 import urllib.error
 from typing import List, Dict, Literal
 
-from config import MIN_SOURCES, CONFIDENCE_THRESHOLD_HIGH, CONFIDENCE_THRESHOLD_MEDIUM
-from retrieve import retrieve_chunks
-from contracts import QueryResult, SourceDict, ChunkDict
+from src.config import MIN_SOURCES, CONFIDENCE_THRESHOLD_HIGH, CONFIDENCE_THRESHOLD_MEDIUM
+from src.retrieve import retrieve_chunks
+from src.contracts import QueryResult, SourceDict, ChunkDict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ class AnswerGenerator:
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "qwen3:8b",
-        timeout: int = 120
+        model: str = "qwen2.5:3b",
+        timeout: int = 450
     ):
         """
         Initialize answer generator with Ollama connection.
@@ -32,7 +32,7 @@ class AnswerGenerator:
         Args:
             base_url: Ollama server URL (default: http://localhost:11434)
             model: Generation model name (default: qwen3:8b)
-            timeout: Request timeout in seconds (default: 120)
+            timeout: Request timeout in seconds (default: 450)
         """
         self.base_url = base_url.rstrip('/')
         self.model = model
@@ -52,7 +52,7 @@ class AnswerGenerator:
 
         # Retrieve relevant chunks
         try:
-            chunks = retrieve_chunks(query, k=10)
+            chunks = retrieve_chunks(query, k=5)
         except ValueError as e:
             logger.error(f"Retrieval failed: {e}")
             return self._insufficient_evidence_response(
@@ -88,6 +88,13 @@ class AnswerGenerator:
                 f"Answer generation failed: {e}"
             )
 
+        # Post-processing: Validate answer quality
+        if not self._validate_answer(answer):
+            logger.warning("Answer validation failed - insufficient evidence detected")
+            return self._insufficient_evidence_response(
+                "The generated answer did not meet enterprise quality standards."
+            )
+
         return {
             "answer": answer,
             "confidence": confidence,
@@ -97,7 +104,7 @@ class AnswerGenerator:
 
     def _passes_guardrails(self, chunks: List[Dict]) -> bool:
         """
-        Check if retrieval results pass quality thresholds.
+        STRICT enterprise guardrails: refuse to answer if evidence is insufficient.
 
         Args:
             chunks: Retrieved chunks with scores
@@ -105,16 +112,32 @@ class AnswerGenerator:
         Returns:
             True if guardrails pass, False otherwise
         """
+        # Guardrail 1: Minimum number of sources (enterprise requirement)
         if len(chunks) < MIN_SOURCES:
-            logger.warning(f"Insufficient sources: {len(chunks)} < {MIN_SOURCES}")
+            logger.warning(
+                f"GUARDRAIL FAILED: Insufficient sources "
+                f"({len(chunks)} < {MIN_SOURCES} required)"
+            )
             return False
 
-        # Check if top score is reasonable
+        # Guardrail 2: Minimum relevance score
+        # Only answer if top chunks have meaningful relevance
         avg_score = sum(c["score"] for c in chunks[:3]) / min(3, len(chunks))
-        if avg_score < 0.3:  # Arbitrary threshold for "relevance"
-            logger.warning(f"Low relevance scores: avg={avg_score:.3f}")
+        if avg_score < 0.3:
+            logger.warning(
+                f"GUARDRAIL FAILED: Low relevance scores (avg={avg_score:.3f})"
+            )
             return False
 
+        # Guardrail 3: Top chunk must be significantly relevant
+        if chunks[0]["score"] < 0.4:
+            logger.warning(
+                f"GUARDRAIL FAILED: Top chunk score too low "
+                f"({chunks[0]['score']:.3f})"
+            )
+            return False
+
+        logger.info("✓ All guardrails passed")
         return True
 
     def _calculate_confidence(self, chunks: List[Dict]) -> Literal["High", "Medium", "Low"]:
@@ -188,7 +211,7 @@ class AnswerGenerator:
 
     def _build_prompt(self, query: str, chunks: List[Dict]) -> str:
         """
-        Build prompt for LLM with system instructions and context.
+        Build STRICT enterprise prompt that enforces evidence-based answers only.
 
         Args:
             query: User query
@@ -197,36 +220,50 @@ class AnswerGenerator:
         Returns:
             Formatted prompt string
         """
-        # System instruction
-        system_msg = "You are an enterprise technical assistant. Answer strictly from the provided context."
+        # STRICT system instruction
+        system_msg = (
+            "You are an enterprise AI assistant. "
+            "You MUST answer STRICTLY and ONLY from the provided context. "
+            "DO NOT use external knowledge. DO NOT make assumptions. "
+            "DO NOT paraphrase beyond what the evidence explicitly states."
+        )
 
         # Build context from top chunks
         context_parts = []
-        for i, chunk in enumerate(chunks[:5], 1):  # Use top 5 chunks
+        for i, chunk in enumerate(chunks[:4], 1):  # Use top 4 chunks
             metadata = chunk["metadata"]
+            doc_info = f"{metadata['document']}"
+            if metadata.get('page'):
+                doc_info += f", Page {metadata['page']}"
+            if metadata.get('section'):
+                doc_info += f", Section: {metadata['section']}"
+
             context_parts.append(
-                f"[Source {i}: {metadata['document']}, Page {metadata['page']}, Section: {metadata['section']}]\n"
-                f"{chunk['text']}\n"
+                f"[Source {i}: {doc_info}]\n{chunk['text']}\n"
             )
 
         context = "\n".join(context_parts)
 
-        # Construct full prompt
+        # Construct STRICT enterprise prompt
         prompt = f"""{system_msg}
 
-Question: {query}
+QUESTION:
+{query}
 
-Context:
+PROVIDED CONTEXT:
 {context}
 
-Instructions:
-- Answer the question using ONLY the information provided in the context above
-- Do not use external knowledge or make assumptions
-- If the context does not contain enough information to answer the question, respond with "Insufficient evidence to answer this question from the provided documentation"
-- Be concise and technical
-- Cite source numbers when referencing specific information
+STRICT INSTRUCTIONS:
+1. Answer ONLY using information explicitly stated in the provided context above
+2. If the context does not contain sufficient information, you MUST respond:
+   "Insufficient evidence to answer this question from the provided documentation"
+3. DO NOT use external knowledge, common sense, or general information
+4. DO NOT infer, assume, or extrapolate beyond what is explicitly written
+5. Cite source numbers [Source N] when referencing information
+6. Be precise and concise - do not add unnecessary elaboration
+7. If uncertain about ANY part of the answer, default to "Insufficient evidence"
 
-Answer:"""
+ANSWER:"""
 
         return prompt
 
@@ -318,6 +355,41 @@ Answer:"""
             error_msg = f"Unexpected error during generation: {e}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
+
+    def _validate_answer(self, answer: str) -> bool:
+        """
+        Post-processing validation: detect if LLM properly refused to hallucinate.
+
+        Args:
+            answer: Generated answer text
+
+        Returns:
+            True if answer is valid, False if it appears to be hallucination
+        """
+        # If answer explicitly states insufficient evidence, that's valid
+        insufficient_indicators = [
+            "insufficient evidence",
+            "cannot answer",
+            "not enough information",
+            "cannot determine",
+            "no information",
+            "does not contain"
+        ]
+
+        answer_lower = answer.lower()
+        for indicator in insufficient_indicators:
+            if indicator in answer_lower:
+                logger.info("Answer correctly refuses with insufficient evidence")
+                return True
+
+        # If answer is too short, it might be invalid
+        if len(answer.strip()) < 20:
+            logger.warning("Answer too short - possible quality issue")
+            return False
+
+        # Answer appears to provide information - assume valid
+        # (LLM followed instructions to answer from context)
+        return True
 
     def _insufficient_evidence_response(self, message: str) -> QueryResult:
         """

@@ -15,12 +15,12 @@ import click
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import ensure_directories
-from ingest import ingest_documents
-from chunking import chunk_and_save, load_chunks
-from index_faiss import build_faiss_index
-from index_bm25 import build_bm25_index
-from answer import answer_query
+from src.config import ensure_directories
+from src.ingest import ingest_documents
+from src.chunking import chunk_and_save, load_chunks
+from src.index_faiss import build_faiss_index
+from src.index_bm25 import build_bm25_index
+from src.answer import answer_query
 
 logging.basicConfig(
     level=logging.INFO,
@@ -164,7 +164,7 @@ def status():
     click.echo("=" * 60)
     click.echo()
 
-    from config import CHUNKS_FILE, FAISS_DIR, BM25_DIR
+    from src.config import CHUNKS_FILE, FAISS_DIR, BM25_DIR
 
     # Check chunks
     if CHUNKS_FILE.exists():

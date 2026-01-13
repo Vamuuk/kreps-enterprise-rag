@@ -1,21 +1,53 @@
 """
 Hybrid retrieval module combining semantic (FAISS) and lexical (BM25) search.
-Implements score normalization and fusion for optimal results.
+Implements:
+- Score normalization and fusion
+- Language-aware retrieval with same-language boost
 """
 
 import logging
+import re
 from typing import List, Dict
 
-from config import SEMANTIC_WEIGHT, LEXICAL_WEIGHT
-from index_faiss import load_faiss_index
-from index_bm25 import load_bm25_index
+from src.config import SEMANTIC_WEIGHT, LEXICAL_WEIGHT
+from src.index_faiss import load_faiss_index
+from src.index_bm25 import load_bm25_index
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class LanguageDetector:
+    """Lightweight offline language detection for queries."""
+
+    @staticmethod
+    def detect_query_language(query: str) -> str:
+        """
+        Detect language from query text.
+
+        Args:
+            query: User query string
+
+        Returns:
+            Language code (en, ru, unknown)
+        """
+        # Count character types
+        cyrillic_count = len(re.findall(r'[а-яА-ЯёЁ]', query))
+        latin_count = len(re.findall(r'[a-zA-Z]', query))
+
+        if cyrillic_count > latin_count * 0.3:
+            return "ru"
+        elif latin_count > 3:
+            return "en"
+        else:
+            return "unknown"
+
+
 class HybridRetriever:
-    """Hybrid retrieval combining semantic and lexical search."""
+    """Hybrid retrieval combining semantic and lexical search with language awareness."""
+
+    # Language boost factor (boost same-language chunks)
+    LANGUAGE_BOOST = 0.15  # 15% boost for matching language
 
     def __init__(self):
         """Initialize retriever with both indices."""
@@ -28,9 +60,11 @@ class HybridRetriever:
             logger.error(f"Failed to load indices: {e}")
             raise
 
+        self.lang_detector = LanguageDetector()
+
     def retrieve(self, query: str, k: int = 10) -> List[Dict]:
         """
-        Retrieve relevant chunks using hybrid search.
+        Retrieve relevant chunks using hybrid search with language awareness.
 
         Args:
             query: User query string
@@ -42,9 +76,13 @@ class HybridRetriever:
         Note:
             If embedding engine is not implemented, will fall back to BM25 only
         """
+        # Detect query language
+        query_lang = self.lang_detector.detect_query_language(query)
+        logger.info(f"Query language detected: {query_lang}")
+
         # Try semantic search
         try:
-            faiss_results = self.faiss_index.search(query, k=k)
+            faiss_results = self.faiss_index.search(query, k=k * 2)  # Get more for filtering
             semantic_available = True
         except NotImplementedError:
             logger.warning("Semantic search unavailable (Qwen not integrated)")
@@ -53,19 +91,20 @@ class HybridRetriever:
             semantic_available = False
 
         # Lexical search (always available)
-        bm25_results = self.bm25_index.search(query, k=k)
+        bm25_results = self.bm25_index.search(query, k=k * 2)
 
         if not semantic_available:
             # BM25 only
-            return self._format_results(bm25_results, k)
+            formatted = self._format_results(bm25_results, k)
+            return self._apply_language_boost(formatted, query_lang, k)
 
         # Hybrid fusion
         merged = self._merge_results(faiss_results, bm25_results)
 
-        # Sort by final score and take top k
-        merged.sort(key=lambda x: x["score"], reverse=True)
+        # Apply language boost
+        merged = self._apply_language_boost(merged, query_lang, k)
 
-        return merged[:k]
+        return merged
 
     def _merge_results(
         self,
@@ -135,6 +174,45 @@ class HybridRetriever:
 
         return merged
 
+    def _apply_language_boost(
+        self,
+        chunks: List[Dict],
+        query_lang: str,
+        k: int
+    ) -> List[Dict]:
+        """
+        Boost chunks that match the query language.
+
+        Args:
+            chunks: Retrieved chunks with scores
+            query_lang: Detected query language
+            k: Number of results to return
+
+        Returns:
+            Top k chunks with language boost applied
+        """
+        if query_lang == "unknown":
+            # No language boost if query language unknown
+            chunks.sort(key=lambda x: x["score"], reverse=True)
+            return chunks[:k]
+
+        # Apply boost to matching language
+        for chunk in chunks:
+            chunk_lang = chunk.get("metadata", {}).get("language", "unknown")
+
+            if chunk_lang == query_lang:
+                # Boost score for same language
+                chunk["score"] = chunk["score"] * (1.0 + self.LANGUAGE_BOOST)
+                logger.debug(
+                    f"Language boost applied to chunk from "
+                    f"{chunk['metadata'].get('document')} (lang={chunk_lang})"
+                )
+
+        # Re-sort after boost
+        chunks.sort(key=lambda x: x["score"], reverse=True)
+
+        return chunks[:k]
+
     def _format_results(
         self,
         results: List[tuple],
@@ -161,7 +239,7 @@ class HybridRetriever:
 
 def retrieve_chunks(query: str, k: int = 10) -> List[Dict]:
     """
-    Retrieve relevant chunks for a query.
+    Retrieve relevant chunks for a query with language awareness.
 
     Args:
         query: User query string
@@ -179,17 +257,27 @@ def retrieve_chunks(query: str, k: int = 10) -> List[Dict]:
 
 if __name__ == "__main__":
     # Test retrieval
-    query = "What are the safety procedures?"
-    print(f"Query: {query}")
+    test_queries = [
+        "What are the safety procedures?",
+        "Какие процедуры безопасности?"
+    ]
 
-    try:
-        results = retrieve_chunks(query, k=5)
-        print(f"\nRetrieved {len(results)} chunks:")
-        for i, chunk in enumerate(results, 1):
-            print(f"\n{i}. Score: {chunk['score']:.4f}")
-            print(f"   Document: {chunk['metadata']['document']}")
-            print(f"   Section: {chunk['metadata']['section']}")
-            print(f"   Text: {chunk['text'][:100]}...")
-    except ValueError as e:
-        print(f"Error: {e}")
-        print("Run indexing first: python src/app.py index")
+    for query in test_queries:
+        print(f"\n{'='*60}")
+        print(f"Query: {query}")
+        print(f"{'='*60}")
+
+        try:
+            results = retrieve_chunks(query, k=5)
+            print(f"\nRetrieved {len(results)} chunks:")
+            for i, chunk in enumerate(results, 1):
+                meta = chunk.get('metadata', {})
+                print(f"\n{i}. Score: {chunk['score']:.4f}")
+                print(f"   Document: {meta.get('document')}")
+                print(f"   Language: {meta.get('language')}")
+                print(f"   Type: {meta.get('document_type')}")
+                print(f"   Section: {meta.get('section')}")
+                print(f"   Text: {chunk['text'][:100]}...")
+        except ValueError as e:
+            print(f"Error: {e}")
+            print("Run indexing first: python src/app.py index")

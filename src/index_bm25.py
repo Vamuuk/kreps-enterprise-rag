@@ -9,7 +9,7 @@ from typing import List, Dict, Tuple
 
 from rank_bm25 import BM25Okapi
 
-from config import BM25_DIR, TOP_K_BM25
+from src.config import BM25_DIR, TOP_K_BM25
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -170,7 +170,7 @@ def load_bm25_index() -> BM25Index:
 
 if __name__ == "__main__":
     # Test BM25 indexing
-    from chunking import load_chunks
+    from src.chunking import load_chunks
 
     chunks = load_chunks()
     if chunks:

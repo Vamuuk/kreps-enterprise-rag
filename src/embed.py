@@ -11,7 +11,7 @@ import urllib.request
 import urllib.error
 from typing import List
 
-from config import EMBEDDING_DIM
+from src.config import EMBEDDING_DIM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
