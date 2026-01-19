@@ -31,12 +31,23 @@ def _create_engine() -> AsyncEngine:
             echo=False,
         )
     else:
-        # MySQL for production/development
-        return create_async_engine(
-            settings.DATABASE_URL,
-            poolclass=NullPool,
-            echo=False,
-        )
+        db_url = settings.DATABASE_URL
+
+        # SQLite needs special handling
+        if db_url.startswith("sqlite"):
+            return create_async_engine(
+                db_url,
+                poolclass=StaticPool,
+                connect_args={"check_same_thread": False},
+                echo=False,
+            )
+        else:
+            # MySQL/PostgreSQL
+            return create_async_engine(
+                db_url,
+                poolclass=NullPool,
+                echo=False,
+            )
 
 
 engine: AsyncEngine = _create_engine()

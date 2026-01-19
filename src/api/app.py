@@ -36,7 +36,8 @@ def create_app() -> FastAPI:
         },
     )
 
-    app.include_router(router)
+    # Mount all routes under /api prefix
+    app.include_router(router, prefix="/api")
 
     return app
 

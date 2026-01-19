@@ -10,7 +10,6 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.config import settings
 from src.core.refusal import evaluate_evidence, get_refusal_message
 from src.core.security import filter_chunks_by_clearance, hash_query
 from src.db.models import QueryAuditLog, RefusalReason, SecurityLevel
@@ -23,13 +22,44 @@ if str(KREPS_RAG_SRC) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
+# Storage paths for checking index existence
+KREPS_RAG_ROOT = Path(__file__).parent.parent.parent / "kREPS-rag"
+STORAGE_DIR = KREPS_RAG_ROOT / "storage"
+INDICES_DIR = STORAGE_DIR / "indices"
+FAISS_DIR = STORAGE_DIR / "faiss"
+CHUNKS_FILE = KREPS_RAG_ROOT / "data" / "processed" / "chunks.jsonl"
+
+
+def _check_index_exists() -> bool:
+    """Check if any index exists."""
+    # Check chunks.jsonl has data
+    if CHUNKS_FILE.exists():
+        try:
+            with open(CHUNKS_FILE, 'r') as f:
+                first_line = f.readline().strip()
+                if first_line:
+                    return True
+        except Exception:
+            pass
+
+    # Check FAISS indices
+    if FAISS_DIR.exists() and (FAISS_DIR / "index.faiss").exists():
+        return True
+
+    # Check indices subdirectory
+    if INDICES_DIR.exists():
+        for subdir in INDICES_DIR.iterdir():
+            if subdir.is_dir():
+                faiss_path = subdir / "faiss" / "index.faiss"
+                if faiss_path.exists():
+                    return True
+
+    return False
+
 
 # Security level mapping between API (0-4) and kREPS-rag (0-3)
-# API: PUBLIC=0, INTERNAL=1, CONFIDENTIAL=2, SECRET=3, TOP_SECRET=4
-# kREPS-rag: PUBLIC=0, INTERNAL=1, CONFIDENTIAL=2, RESTRICTED=3
 def _api_clearance_to_kreps(api_clearance: int) -> int:
     """Map API clearance level to kREPS-rag SecurityLevel."""
-    # TOP_SECRET (4) maps to RESTRICTED (3) since kREPS-rag has no TOP_SECRET
     return min(api_clearance, 3)
 
 
@@ -39,7 +69,7 @@ def _kreps_level_to_api(kreps_level_str: str) -> int:
         "public": SecurityLevel.PUBLIC.value,
         "internal": SecurityLevel.INTERNAL.value,
         "confidential": SecurityLevel.CONFIDENTIAL.value,
-        "restricted": SecurityLevel.SECRET.value,  # RESTRICTED -> SECRET
+        "restricted": SecurityLevel.SECRET.value,
     }
     return mapping.get(kreps_level_str.lower(), SecurityLevel.PUBLIC.value)
 
@@ -66,6 +96,33 @@ class QueryService:
         """Process a query request and return response."""
         start_time = time.perf_counter()
         query_hash_value = hash_query(request.query)
+
+        # CRITICAL: Check if index exists BEFORE trying to query
+        if not _check_index_exists():
+            logger.warning("Query attempted but no index exists")
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+            # Create audit log for refused query
+            await QueryService._create_audit_log(
+                db=db,
+                query_hash=query_hash_value,
+                index_name=request.index_name,
+                user_clearance=request.clearance_level,
+                retrieved_count=0,
+                used_count=0,
+                top_score=None,
+                refused=True,
+                refusal_reason=RefusalReason.INDEX_NOT_FOUND,
+                latency_ms=latency_ms,
+            )
+
+            return QueryResponse(
+                answer=get_refusal_message(RefusalReason.INDEX_NOT_FOUND),
+                sources=[],
+                query=request.query,
+                refused=True,
+                refusal_reason=RefusalReason.INDEX_NOT_FOUND,
+            )
 
         result = await QueryService._execute_query(request)
 
@@ -97,9 +154,23 @@ class QueryService:
     async def _execute_query(request: QueryRequest) -> QueryResult:
         """Execute query with security filtering and evidence evaluation."""
         import asyncio
-        from security_mapping import SecurityContext, SecurityLevel as KrepsSecurityLevel, DocumentType
-        from retrieve import retrieve_chunks
-        from answer import AnswerGenerator
+
+        try:
+            from security_mapping import SecurityContext, SecurityLevel as KrepsSecurityLevel, DocumentType
+            from retrieve import retrieve_chunks
+            from answer import AnswerGenerator
+        except ImportError as e:
+            logger.error(f"Failed to import kREPS-rag modules: {e}")
+            return QueryResult(
+                answer=get_refusal_message(RefusalReason.INDEX_NOT_FOUND),
+                sources=[],
+                refused=True,
+                refusal_reason=RefusalReason.INDEX_NOT_FOUND,
+                retrieved_count=0,
+                used_count=0,
+                top_score=None,
+                latency_ms=0,
+            )
 
         # Build kREPS-rag security context from API clearance level
         kreps_clearance = _api_clearance_to_kreps(request.clearance_level)
@@ -125,7 +196,7 @@ class QueryService:
                 None,
                 lambda: retrieve_chunks(request.query, k=request.top_k * 2, security_context=security_context)
             )
-        except ValueError as e:
+        except Exception as e:
             logger.error(f"Retrieval failed: {e}")
             return QueryResult(
                 answer=get_refusal_message(RefusalReason.INDEX_NOT_FOUND),
@@ -139,6 +210,20 @@ class QueryService:
             )
 
         retrieved_count = len(raw_results)
+
+        # Handle empty retrieval
+        if retrieved_count == 0:
+            return QueryResult(
+                answer=get_refusal_message(RefusalReason.INSUFFICIENT_EVIDENCE),
+                sources=[],
+                refused=True,
+                refusal_reason=RefusalReason.INSUFFICIENT_EVIDENCE,
+                retrieved_count=0,
+                used_count=0,
+                top_score=None,
+                latency_ms=0,
+            )
+
         top_score = max((r.get("score", 0.0) for r in raw_results), default=None)
 
         # Convert kREPS-rag chunks to API format with security level mapping
@@ -211,7 +296,7 @@ class QueryService:
                         "document": chunk.get("source", "unknown"),
                         "page": metadata.get("page"),
                         "section": metadata.get("section", ""),
-                        "security_level": "internal",  # Already filtered
+                        "security_level": "internal",
                         "language": metadata.get("language", "en"),
                         "allowed_for_answer": True,
                     },
@@ -288,17 +373,21 @@ class QueryService:
         latency_ms: int,
     ) -> None:
         """Persist audit log entry."""
-        audit_log = QueryAuditLog(
-            id=str(uuid4()),
-            query_hash=query_hash,
-            index_name=index_name,
-            user_clearance_level=user_clearance,
-            retrieved_count=retrieved_count,
-            used_count=used_count,
-            top_score=top_score,
-            refused=refused,
-            refusal_reason=refusal_reason,
-            latency_ms=latency_ms,
-        )
-        db.add(audit_log)
-        await db.commit()
+        try:
+            audit_log = QueryAuditLog(
+                id=str(uuid4()),
+                query_hash=query_hash,
+                index_name=index_name,
+                user_clearance_level=user_clearance,
+                retrieved_count=retrieved_count,
+                used_count=used_count,
+                top_score=top_score,
+                refused=refused,
+                refusal_reason=refusal_reason,
+                latency_ms=latency_ms,
+            )
+            db.add(audit_log)
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Failed to create audit log: {e}")
+            # Don't fail the query if audit logging fails

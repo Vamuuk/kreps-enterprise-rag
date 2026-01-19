@@ -100,7 +100,7 @@ def setup_index_not_found():
 
 
 # =============================================================================
-# Tests
+# Tests - ALL ENDPOINTS NOW UNDER /api PREFIX
 # =============================================================================
 @pytest.mark.asyncio
 async def test_query_refuses_when_no_index(client: AsyncClient):
@@ -108,7 +108,7 @@ async def test_query_refuses_when_no_index(client: AsyncClient):
     setup_index_not_found()
 
     response = await client.post(
-        "/query",
+        "/api/query",
         json={
             "query": "What is the policy?",
             "index_name": "nonexistent",
@@ -130,7 +130,7 @@ async def test_query_filters_restricted_content(client: AsyncClient):
     setup_successful_retrieval()
 
     response = await client.post(
-        "/query",
+        "/api/query",
         json={
             "query": "Strategic plans",
             "index_name": "test_index",
@@ -153,7 +153,7 @@ async def test_query_succeeds_with_evidence(client: AsyncClient):
     setup_successful_retrieval()
 
     response = await client.post(
-        "/query",
+        "/api/query",
         json={
             "query": "Company information",
             "index_name": "test_index",
@@ -182,7 +182,7 @@ async def test_audit_log_created(client: AsyncClient, setup_database):
     setup_index_not_found()
 
     await client.post(
-        "/query",
+        "/api/query",
         json={
             "query": "Test query",
             "index_name": "audit_test",
@@ -225,8 +225,8 @@ async def test_deterministic_response(client: AsyncClient):
         "clearance_level": 2,
     }
 
-    r1 = await client.post("/query", json=payload)
-    r2 = await client.post("/query", json=payload)
+    r1 = await client.post("/api/query", json=payload)
+    r2 = await client.post("/api/query", json=payload)
 
     d1, d2 = r1.json(), r2.json()
 
@@ -238,7 +238,7 @@ async def test_deterministic_response(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_health_endpoint(client: AsyncClient, setup_database):
     """Health endpoint reports status."""
-    response = await client.get("/health")
+    response = await client.get("/api/health")
 
     assert response.status_code == 200
     data = response.json()
@@ -253,7 +253,7 @@ async def test_query_with_internal_clearance(client: AsyncClient):
     setup_successful_retrieval()
 
     response = await client.post(
-        "/query",
+        "/api/query",
         json={
             "query": "Internal policies",
             "index_name": "test_index",

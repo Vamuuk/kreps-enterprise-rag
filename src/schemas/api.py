@@ -56,7 +56,7 @@ class QueryRequest(BaseModel):
     """RAG query request."""
 
     query: str = Field(..., description="User query", min_length=1, max_length=4096)
-    index_name: str = Field(..., description="Target index", min_length=1, max_length=255)
+    index_name: str = Field(default="default", description="Target index", min_length=1, max_length=255)
     top_k: int = Field(default=5, description="Number of results", ge=1, le=100)
     clearance_level: int = Field(
         default=SecurityLevel.PUBLIC.value,
@@ -75,6 +75,17 @@ class RetrievedDocument(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class QueryMetrics(BaseModel):
+    """Query timing breakdown."""
+
+    retrieval_ms: int = 0
+    ranking_ms: int = 0
+    generation_ms: int = 0
+    total_ms: int = 0
+    chunks_retrieved: int = 0
+    chunks_blocked: int = 0
+
+
 class QueryResponse(BaseModel):
     """RAG query response."""
 
@@ -83,6 +94,8 @@ class QueryResponse(BaseModel):
     query: str
     refused: bool = False
     refusal_reason: Optional[RefusalReason] = None
+    confidence: str = "Low"
+    metrics: Optional[QueryMetrics] = None
 
 
 class ErrorResponse(BaseModel):
@@ -98,3 +111,80 @@ class HealthResponse(BaseModel):
     status: str
     database: str
     version: str
+
+
+# ============================================
+# NEW SCHEMAS FOR REAL DATA BINDING
+# ============================================
+
+class SystemStatusResponse(BaseModel):
+    """Complete system status with real metrics."""
+
+    system: str  # 'ready' | 'indexing' | 'error'
+    ollama_connected: bool
+    index_ready: bool
+    db_connected: bool
+    total_documents: int
+    total_chunks: int
+    storage_paths: dict[str, str]
+    last_index_job: Optional[dict] = None
+
+
+class IndexResetResponse(BaseModel):
+    """Response after clearing indices."""
+
+    ok: bool
+    cleared: dict
+
+
+class DocumentInfo(BaseModel):
+    """Indexed document information."""
+
+    filename: str
+    file_hash: str
+    security_level: str
+    document_type: str
+    language: str
+    chunks_count: int
+    indexed_at: Optional[datetime] = None
+
+
+class IndexVerifyResponse(BaseModel):
+    """Verification of indexed documents."""
+
+    index_ready: bool
+    documents: list[DocumentInfo]
+    total_documents: int
+    total_chunks: int
+
+
+class AuditLogEntry(BaseModel):
+    """Single audit log entry."""
+
+    id: str
+    timestamp: datetime
+    query_hash: str
+    clearance_level: int
+    chunks_retrieved: int
+    chunks_blocked: int
+    top_score: Optional[float]
+    refused: bool
+    refusal_reason: Optional[str]
+    latency_ms: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditLogsResponse(BaseModel):
+    """List of audit log entries."""
+
+    logs: list[AuditLogEntry]
+    total_count: int
+
+
+class FileUploadResponse(BaseModel):
+    """Response after file upload."""
+
+    uploaded: int
+    files: list[str]
+    errors: list[str]

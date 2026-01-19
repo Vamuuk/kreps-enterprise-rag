@@ -1,11 +1,29 @@
 """Application configuration and constants."""
 
+import os
+from pathlib import Path
+
 
 class Settings:
-    """Application settings. Replace with environment variables in production."""
+    """Application settings. Uses environment variables or sensible defaults."""
 
-    # Database
-    DATABASE_URL: str = "mysql+aiomysql://root:password@localhost:3306/rag_system"
+    # Project paths
+    PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
+    KREPS_RAG_ROOT: Path = PROJECT_ROOT / "kREPS-rag"
+    STORAGE_DIR: Path = KREPS_RAG_ROOT / "storage"
+    DATA_DIR: Path = KREPS_RAG_ROOT / "data"
+
+    # Database - use SQLite by default for development
+    # Set DATABASE_URL env var for MySQL in production
+    @property
+    def DATABASE_URL(self) -> str:
+        env_url = os.environ.get("DATABASE_URL")
+        if env_url:
+            return env_url
+        # Default to SQLite
+        db_path = self.PROJECT_ROOT / "data" / "rag.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        return f"sqlite+aiosqlite:///{db_path}"
 
     # API
     API_VERSION: str = "1.0.0"
@@ -16,7 +34,6 @@ class Settings:
     MIN_EVIDENCE_CHUNKS: int = 1
 
     # Pipeline stage progress weights (start%, end%)
-    # Keys are JobStage enum values
     STAGE_WEIGHTS: dict[str, tuple[float, float]] = {
         "queued": (0.0, 0.0),
         "ingest": (0.0, 20.0),
